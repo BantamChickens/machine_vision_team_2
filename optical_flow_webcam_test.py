@@ -4,9 +4,9 @@ import argparse
 parser = argparse.ArgumentParser(description='This sample demonstrates Lucas-Kanade Optical Flow calculation. \
                                               The example file can be downloaded from: \
                                               https://www.bogotobogo.com/python/OpenCV_Python/images/mean_shift_tracking/slow_traffic_small.mp4')
-parser.add_argument('image', type=str, help='path to image file')
-args = parser.parse_args()
-cap = cv.VideoCapture(args.image)
+#parser.add_argument('image', type=str, help='path to image file')
+#args = parser.parse_args()
+cap = cv.VideoCapture("/home/liam/Downloads/slow_traffic_small.mp4")
 # params for ShiTomasi corner detection
 feature_params = dict( maxCorners = 100,
                        qualityLevel = 0.3,
