@@ -36,7 +36,7 @@ class optical_flow_estimate(Node):
 
         self.raw_vectors_pub = self.create_publisher(Image, 'raw_vectors', 10)
 
-
+        
         self.image_output = True
 
         self.should_move = False  # whether the Neato should be moving
@@ -45,8 +45,8 @@ class optical_flow_estimate(Node):
         # TODO: initialize attributes for the color filtering thresholds
 
         # params for ShiTomasi corner detection
-        self.feature_params = dict( maxCorners = 100,
-                       qualityLevel = 0.3,
+        self.feature_params = dict( maxCorners = 200,
+                       qualityLevel = 0.2,
                        minDistance = 7,
                        blockSize = 7 )
         # Parameters for lucas kanade optical flow
@@ -57,31 +57,10 @@ class optical_flow_estimate(Node):
         thread = Thread(target=self.loop_wrapper)
         thread.start()
 
-        '''
-        time.sleep(3)
-        while(True):
-            if not self.raw_vector_tails and self.raw_vector_tails is None:
-                # Creating plot
-                plt.quiver(self.raw_vector_tails[:,0,0], self.raw_vector_tails[:,0,1], self.raw_vector_heads[:,0,0], self.raw_vector_heads[:,0,1], color='b', units='xy', scale=1)
-                plt.title('Single Vector')
-
-                # x-lim and y-lim
-                plt.xlim(-2, 5)
-                plt.ylim(-2, 2.5)
-
-                # Show plot with grid
-                plt.grid()
-                plt.show()
-        '''
-
 
     def display_image(self):
         cv2.imshow('frame', self.img)
 
-
-    def loop_2(self):
-            time.sleep(3)
-            print("thread")
 
     def process_image(self, msg = None):
         if not msg is None:
@@ -101,63 +80,77 @@ class optical_flow_estimate(Node):
             self.run_loop()
             time.sleep(0.01)
 
+    def paralax_corrector(self):
+        self.corrected_vectors = self.raw_vectors
 
 
-
-    def optical_flow_test(self):
-        color = np.random.randint(0, 255, (100, 3))
-        #take to pictures to compare
+    def optical_flow(self):
+        color = np.random.randint(0, 255, (300, 3))
+        #  find features to track in last image
         p1 = cv2.goodFeaturesToTrack(self.last_frame, mask = None, **self.feature_params)
+        #  save current frame
         self.current_frame = self.cv_image
-        #self.current_frame_blue = self.cv_image[:, :, 0]
-        #print(self.current_frame.shape, self.current_frame_blue.shape)
+        #  create mask for flow line overlay
         mask = np.zeros_like(self.last_frame)
-        #do optical flow analsys
+        # find positions of points from last frame to current frame
         if not p1 is None:
             p2, st, err = cv2.calcOpticalFlowPyrLK(self.last_frame, self.current_frame, p1, None, **self.lk_params)
 
-            # Select good points
+            #  Select good points
             if p2 is not None:
                 good_new = p1[st==1]
                 good_old = p2[st==1]
-                #print("not none")
-            
-                raw_vectors = np.zeros((np.shape(good_new)[0], 2, 2))
-
+            #  setup array for all good raw vectors dimensions = (number of good vectors, dimensions(2), xy, uv)
+            self.raw_vectors = np.zeros((np.shape(good_new)[0], 2, 2))
             if self.image_output:
                 for i, (new, old) in enumerate(zip(good_new, good_old)):
-                    '''
+                    #  gets new keypoint positions
                     a, b = new.ravel()
+                    #  gets old keypoint positions
                     c, d = old.ravel()
-                    print(c - a, d - b)
-                    my_header = Header(stamp=self.get_clock().now().to_msg(), frame_id="odom")
-                    point = Point(x = float(0), y = float(0), z = 0.0)
-                    cross = np.cross([a, b, 0] , [c, d, 0])
-                    dot = np.dot([a, b], [c, d])
-                    quat = Quaternion(x = float(cross[0]), y = float(cross[0]), z = float(cross[2]), w = float(dot))
-                    Poses.append(Pose(position = point, orientation = quat))'''
-                    a, b = new.ravel()
-                    c, d = old.ravel()
-                    raw_vectors[i, :, 0] = np.array(a - c, b - d)
+                    #  saves vector
+                    self.raw_vectors[i, :, 1] = [a - c, b - d]
+                    self.raw_vectors[i, :, 0] = [c, d]
+                    #  draws lines and dots on mask
                     mask = cv2.line(mask, (int(a), int(b)), (int(c), int(d)), color[i].tolist(), 2)
                     frame = cv2.circle(self.current_frame, (int(a), int(b)), 5, color[i].tolist(), -1)
-                #posearray = PoseArray(poses = Poses, header = my_header, check_fields = 0)
-                #print("hi")
-                #self.unscaled_vectors.publish(posearray)
+                #  overlays mask and publishes optical flow example
                 self.img = cv2.add(self.current_frame, mask)
                 pub_img = self.bridge.cv2_to_imgmsg(self.img)
                 self.image_pub.publish(pub_img)
-                if not raw_vectors.shape == (0, 2, 2):
-                    self.raw_vectors_pub.publish(self.bridge.cv2_to_imgmsg(raw_vectors))
+                #if not raw_vectors.shape == (0, 2, 2):
+                    #self.raw_vectors_pub.publish(self.bridge.cv2_to_imgmsg(raw_vectors))
+                #  resets last fame
                 self.last_frame = self.current_frame
 
+    def find_mean_vector(self):
+        angels = np.zeros((self.corrected_vectors.shape[0], 1))
+        magnitudes = np.zeros((self.corrected_vectors.shape[0], 1))
+        for i in range(0, self.corrected_vectors.shape[0]):
+            vec = self.corrected_vectors[i, :, 1]
+            angels[i] = np.arctan2(*vec.T[::-1])
+            magnitudes[i] = np.sqrt(abs(vec[0]*vec[0]) + abs(vec[1]*vec[1]))
+        avg_mag = np.mean(magnitudes)
 
+        mdev_ang = np.median(np.abs(angels - np.median(angels)))
+        s_ang = np.abs(angels - np.median(angels))/mdev_ang if mdev_ang else np.zeros(len(np.abs(angels - np.median(angels))))
+        avg_ang = np.mean(angels[s_ang<2])
+
+        mdev_mag = np.median(np.abs(magnitudes - np.median(magnitudes)))
+        s_mag = np.abs(magnitudes - np.median(magnitudes))/mdev_mag if mdev_mag else np.zeros(len(np.abs(magnitudes - np.median(magnitudes))))
+        avg_mag = np.mean(magnitudes[s_mag<2])
+
+        print(avg_mag, avg_ang)
     
     def run_loop(self):
         if not self.cv_image is None:
+            #  takes initial picture
             self.last_frame = self.cv_image
             time.sleep(0.03)
-            self.optical_flow_test()
+            #  runs optical flow
+            self.optical_flow()
+            self.paralax_corrector()
+            self.find_mean_vector()
 
 
         

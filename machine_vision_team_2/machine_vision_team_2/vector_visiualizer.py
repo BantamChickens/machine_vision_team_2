@@ -3,10 +3,13 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
+import numpy as np
+import matplotlib.pyplot as plt
 
 class VectorVisiualizer(Node):
     """This is a message subscription node, which inherits from the rclpy Node class."""
     def __init__(self):
+        self.bridge = CvBridge()  
         """Initializes the ReceiveMessageNode. No inputs."""
         super().__init__('receive_message_node')
         self.sub = self.create_subscription(Image, 'raw_vectors', self.process_point, 10)
@@ -14,8 +17,18 @@ class VectorVisiualizer(Node):
 
 
     def process_point(self, msg):
-        self.raw_vector= self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8") 
-        print(self.raw_vector)   
+        self.raw_vector= self.bridge.imgmsg_to_cv2(msg) 
+        print(self.raw_vector)
+        for i in range(0, self.raw_vector.shape[0]):
+            plt.quiver(self.raw_vector[i, 0, 0], self.raw_vector[i, 1, 0], self.raw_vector[i, 0, 1], self.raw_vector[i, 1, 1], color='b', units='xy', scale=1)
+
+        # x-lim and y-lim
+        plt.xlim(0, 700)
+        plt.ylim(0, 700)
+
+        # Show plot with grid
+        plt.grid()
+        plt.show()
 
 
 
