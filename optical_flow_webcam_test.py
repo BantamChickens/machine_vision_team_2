@@ -44,6 +44,7 @@ while(1):
         frame = cv.circle(frame, (int(a), int(b)), 5, color[i].tolist(), -1)
     img = cv.add(frame, mask)
     cv.imshow('frame', img)
+    print("hi")
     k = cv.waitKey(30) & 0xff
     if k == 27:
         break

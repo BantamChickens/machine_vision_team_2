@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'optical_flow_estimate = machine_vision_team_2.neato_optical_flow:main'
+            'VectorVisiualizer = machine_vision_team_2.vector_visiualizer:main'
         ],
     },
 )
