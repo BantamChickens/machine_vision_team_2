@@ -20,7 +20,7 @@ dist_per_pixel_y = max_y_dist/pixels_y
 vector_displacement_list = []
 
 def real_distance(vector_cloud_old, vector_cloud_new): # rename this appropriatly 
-    for i in range(len(vector_cloud_ambigous))
+    for i in range(len(vector_cloud_old))
         old_dist_x = old_vector_cloud[[i]][0] * dist_per_pixel_x # one vector in vector clouds x value and convert it to position in physical units
         old_dist_y = old_vector_cloud[[i]][1] * dist_per_pixel_y
         new_dist_x = new_vector_cloud[[i]][0] * dist_per_pixel_x 
