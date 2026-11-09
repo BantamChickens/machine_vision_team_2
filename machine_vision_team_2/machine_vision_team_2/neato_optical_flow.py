@@ -36,6 +36,8 @@ class optical_flow_estimate(Node):
 
         self.raw_vectors_pub = self.create_publisher(Image, 'raw_vectors', 10)
 
+        self.pose_estimate_pub = self.create_publisher(Pose, 'pose_estimate', 10)
+
         
         self.image_output = True
 
@@ -58,8 +60,10 @@ class optical_flow_estimate(Node):
         thread.start()
 
 
-    def display_image(self):
+    def update_pose(self):
         cv2.imshow('frame', self.img)
+
+
 
 
     def process_image(self, msg = None):
@@ -85,13 +89,13 @@ class optical_flow_estimate(Node):
 
 
     def optical_flow(self):
-        color = np.random.randint(0, 255, (300, 3))
+        color = np.array([[0, 0, 255] for i in range(300)])
         #  find features to track in last image
         p1 = cv2.goodFeaturesToTrack(self.last_frame, mask = None, **self.feature_params)
         #  save current frame
         self.current_frame = self.cv_image
         #  create mask for flow line overlay
-        mask = np.zeros_like(self.last_frame)
+        mask = np.zeros_like(cv2.cvtColor(self.last_frame, cv2.COLOR_GRAY2RGB))
         # find positions of points from last frame to current frame
         if not p1 is None:
             p2, st, err = cv2.calcOpticalFlowPyrLK(self.last_frame, self.current_frame, p1, None, **self.lk_params)
@@ -113,9 +117,9 @@ class optical_flow_estimate(Node):
                     self.raw_vectors[i, :, 0] = [c, d]
                     #  draws lines and dots on mask
                     mask = cv2.line(mask, (int(a), int(b)), (int(c), int(d)), color[i].tolist(), 2)
-                    frame = cv2.circle(self.current_frame, (int(a), int(b)), 5, color[i].tolist(), -1)
+                    frame = cv2.circle(mask, (int(a), int(b)), 5, color[i].tolist(), -1)
                 #  overlays mask and publishes optical flow example
-                self.img = cv2.add(self.current_frame, mask)
+                self.img = cv2.add(frame, cv2.cvtColor(self.current_frame, cv2.COLOR_GRAY2RGB))
                 pub_img = self.bridge.cv2_to_imgmsg(self.img)
                 self.image_pub.publish(pub_img)
                 #if not raw_vectors.shape == (0, 2, 2):
@@ -140,8 +144,13 @@ class optical_flow_estimate(Node):
         s_mag = np.abs(magnitudes - np.median(magnitudes))/mdev_mag if mdev_mag else np.zeros(len(np.abs(magnitudes - np.median(magnitudes))))
         avg_mag = np.mean(magnitudes[s_mag<2])
 
-        print(avg_mag, avg_ang)
-    
+        self.avg_vec = np.array(avg_mag * np.cos(avg_ang), avg_mag * np.cos(avg_ang))
+
+    def transform_to_neato_frame(self, vectors):
+        transformed = vectors
+        return transformed
+
+
     def run_loop(self):
         if not self.cv_image is None:
             #  takes initial picture
