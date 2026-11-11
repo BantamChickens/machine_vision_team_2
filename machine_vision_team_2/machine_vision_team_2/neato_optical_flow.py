@@ -30,6 +30,9 @@ class optical_flow_estimate(Node):
         self.cv_image = None                        # the latest image from the camera
         self.bridge = CvBridge()                    # used to convert ROS messages to OpenCV
 
+        self.neato_posotion = np.zeros((2, 1))
+        self.neato_heading = 0
+
         self.create_subscription(Image, image_topic, self.process_image, 10)
         self.pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.image_pub = self.create_publisher(Image, 'test_image', 10)
@@ -85,41 +88,31 @@ class optical_flow_estimate(Node):
             time.sleep(0.01)
 
     def paralax_corrector(self):
-        self.corrected_vectors = self.raw_vectors
+        self.corrected_vectors = np.zeros((self.raw_vectors.shape[0], 2))
+        field_of_view_x = 62.2
+        field_of_view_y = 48.8
+        height = 11.4
 
-    field_of_view_x = 62.2
-    field_of_view_y = 48.8
-    height = 11.4
+        max_x_dist = 2 * math.sin(field_of_view_x/2) * height
+        max_y_dist = 2 * math.sin(field_of_view_y/2) * height
 
-    max_x_dist = 2 * math.cos(field_of_view_x/2) * height
-    max_y_dist = 2 * math.cos(field_of_view_y/2) * height
-
-    pixels_x = 1920
-    pixels_y = 1080
-    dist_per_pixel_x =max_x_dist/pixels_x
-    dist_per_pixel_y = max_y_dist/pixels_y
-
-
+        pixels_x = self.last_frame.shape[0]
+        pixels_y = self.last_frame.shape[1]
+        dist_per_pixel_x =max_x_dist/pixels_x
+        dist_per_pixel_y = max_y_dist/pixels_y
     
-        for i in range(len(self.corrected_vectors))
+        for i in range(len(self.corrected_vectors)):
             #old_dist_x = old_vector_cloud[[i]][0] * dist_per_pixel_x # one vector in vector clouds x value and convert it to position in physical units
             #old_dist_y = old_vector_cloud[[i]][1] * dist_per_pixel_y
-            #new_dist_x = new_vector_cloud[[i]][0] * dist_per_pixel_x 
-            #new_dist_y = new_vector_cloud[[i]][1] * dist_per_pixel_y
+            new_dist_x = self.raw_vectors[i, 0, 1] * dist_per_pixel_x 
+            new_dist_y = self.raw_vectors[i, 1, 1] * dist_per_pixel_y
 
-            #old_distance = math.sqt((old_dist_x **2)+(old_dist_x **2)) # postion of vector in first image
-            #new_distance = math.sqt((new_dist_x **2)+(new_dist_x **2)) # position of vector in second image
-            #displacement[i] = new_distance - old_distance
-            self.corrected_vectors[i] = math.sqt(((self.corrected_vectors[[i]][0]) **2)+((self.corrected_vectors[[i]][1]) **2))
+            #print(new_dist_x, new_dist_y)
 
-        return 
-            self.corrected_vectors
-
-
-
-
-
-
+            #old_distance = math.sqt((old_dist_x **2)+(old_dist_y **2)) # postion of vector in first image
+            distance = math.sqrt((new_dist_x **2)+(new_dist_y **2)) # position of vector in second image
+            self.corrected_vectors[i, :] = [new_dist_x,new_dist_y]
+            #self.corrected_vectors[i] = math.sqt(((self.corrected_vectors[[i]][0]) **2)+((self.corrected_vectors[[i]][1]) **2))
 
 
     def optical_flow(self):
@@ -165,24 +158,28 @@ class optical_flow_estimate(Node):
         angels = np.zeros((self.corrected_vectors.shape[0], 1))
         magnitudes = np.zeros((self.corrected_vectors.shape[0], 1))
         for i in range(0, self.corrected_vectors.shape[0]):
-            vec = self.corrected_vectors[i, :, 1]
-            angels[i] = np.arctan2(*vec.T[::-1])
+            vec = self.corrected_vectors[i, :]
+            angels[i] = np.arctan2(vec[0], vec[1])
+            #print(vec)
             magnitudes[i] = np.sqrt(abs(vec[0]*vec[0]) + abs(vec[1]*vec[1]))
-        avg_mag = np.mean(magnitudes)
+        self.avg_mag = np.median(magnitudes)
+        self.avg_ang = np.rad2deg(np.median(angels))
+        self.avg_vec = np.array(self.avg_mag * np.cos(self.avg_ang), self.avg_mag * np.cos(self.avg_ang))
 
-        mdev_ang = np.median(np.abs(angels - np.median(angels)))
-        s_ang = np.abs(angels - np.median(angels))/mdev_ang if mdev_ang else np.zeros(len(np.abs(angels - np.median(angels))))
-        avg_ang = np.mean(angels[s_ang<2])
+    def transform_to_neato_frame(self):
+        if 45 > self.avg_ang > -45:
+            vec = [np.cos(self.avg_ang) * self.avg_mag, np.sin(self.avg_ang) * self.avg_mag]
+            self.neato_posotion[0] = self.neato_posotion[0] - vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
+            self.neato_posotion[1] = self.neato_posotion[1] - vec[1]
+        elif 180 > self.avg_ang > 135 or -135 > self.avg_ang > -18:
+            vec = [np.cos(self.avg_ang) * self.avg_mag, np.sin(self.avg_ang) * self.avg_mag]
+            self.neato_posotion[0] = self.neato_posotion[0] + vec[0] # yes i know there is a better way to add two vectors im just too tired to figure out the dimensions
+            self.neato_posotion[1] = self.neato_posotion[1] + vec[1]
+        elif True :
+            pass 
+            
+            
 
-        mdev_mag = np.median(np.abs(magnitudes - np.median(magnitudes)))
-        s_mag = np.abs(magnitudes - np.median(magnitudes))/mdev_mag if mdev_mag else np.zeros(len(np.abs(magnitudes - np.median(magnitudes))))
-        avg_mag = np.mean(magnitudes[s_mag<2])
-
-        self.avg_vec = np.array(avg_mag * np.cos(avg_ang), avg_mag * np.cos(avg_ang))
-
-    def transform_to_neato_frame(self, vectors):
-        transformed = vectors
-        return transformed
 
 
     def run_loop(self):
