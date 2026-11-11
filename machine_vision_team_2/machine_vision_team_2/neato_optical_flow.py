@@ -87,6 +87,40 @@ class optical_flow_estimate(Node):
     def paralax_corrector(self):
         self.corrected_vectors = self.raw_vectors
 
+    field_of_view_x = 62.2
+    field_of_view_y = 48.8
+    height = 11.4
+
+    max_x_dist = 2 * math.cos(field_of_view_x/2) * height
+    max_y_dist = 2 * math.cos(field_of_view_y/2) * height
+
+    pixels_x = 1920
+    pixels_y = 1080
+    dist_per_pixel_x =max_x_dist/pixels_x
+    dist_per_pixel_y = max_y_dist/pixels_y
+
+
+    
+        for i in range(len(self.corrected_vectors))
+            #old_dist_x = old_vector_cloud[[i]][0] * dist_per_pixel_x # one vector in vector clouds x value and convert it to position in physical units
+            #old_dist_y = old_vector_cloud[[i]][1] * dist_per_pixel_y
+            #new_dist_x = new_vector_cloud[[i]][0] * dist_per_pixel_x 
+            #new_dist_y = new_vector_cloud[[i]][1] * dist_per_pixel_y
+
+            #old_distance = math.sqt((old_dist_x **2)+(old_dist_x **2)) # postion of vector in first image
+            #new_distance = math.sqt((new_dist_x **2)+(new_dist_x **2)) # position of vector in second image
+            #displacement[i] = new_distance - old_distance
+            self.corrected_vectors[i] = math.sqt(((self.corrected_vectors[[i]][0]) **2)+((self.corrected_vectors[[i]][1]) **2))
+
+        return 
+            self.corrected_vectors
+
+
+
+
+
+
+
 
     def optical_flow(self):
         color = np.array([[0, 0, 255] for i in range(300)])

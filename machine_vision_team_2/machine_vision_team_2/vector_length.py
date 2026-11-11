@@ -7,7 +7,7 @@ from rclpy.node import Node
 
 field_of_view_x = 62.2
 field_of_view_y = 48.8
-height = 5
+height = 11.4
 
 max_x_dist = 2 * math.cos(field_of_view_x/2) * height
 max_y_dist = 2 * math.cos(field_of_view_y/2) * height
@@ -29,7 +29,7 @@ def real_distance(vector_cloud_old, vector_cloud_new): # rename this appropriatl
         old_distance = math.sqt((old_dist_x **2)+(old_dist_x **2)) # postion of vector in first image
         new_distance = math.sqt((new_dist_x **2)+(new_dist_x **2)) # position of vector in second image
         displacement[i] = new_distance - old_distance
-    average_displacement = sum(displacement)/len(displacement)
+    
 return 
-    print(average_displacement)
+    print(displacement)
     
