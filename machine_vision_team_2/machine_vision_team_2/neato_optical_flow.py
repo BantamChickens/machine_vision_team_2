@@ -4,9 +4,8 @@ import numpy as np
 import cv2
 import rclpy
 import numpy as np
-import matplotlib.pyplot as plt
 import math
-
+from scipy.spatial.transform import Rotation as R
 from threading import Thread
 from cv_bridge import CvBridge
 from rclpy.node import Node
@@ -15,7 +14,7 @@ from geometry_msgs.msg import Twist
 from geometry_msgs.msg import PoseArray
 from geometry_msgs.msg import Point
 from geometry_msgs.msg import Quaternion
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import PoseStamped, Pose
 from std_msgs.msg import Header
 from std_msgs.msg import Int32MultiArray
 
@@ -41,7 +40,7 @@ class optical_flow_estimate(Node):
 
         self.raw_vectors_pub = self.create_publisher(Image, 'raw_vectors', 10)
 
-        self.pose_estimate_pub = self.create_publisher(Pose, 'pose_estimate', 10)
+        self.pose_estimate_pub = self.create_publisher(PoseStamped, 'pose_estimate', 10)
 
         self.image_output = True
 
@@ -57,8 +56,11 @@ class optical_flow_estimate(Node):
                   maxLevel = 2,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03))
 
+        print("test0")
         thread = Thread(target=self.loop_wrapper)
         thread.start()
+        print("test1")
+
 
 
     def update_pose(self):
@@ -73,11 +75,11 @@ class optical_flow_estimate(Node):
                 called cv_image for subsequent processing """
             raw_img= self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
             grey_img = cv2.cvtColor(raw_img, cv2.COLOR_BGR2GRAY)
-            self.cv_image = equ = cv2.equalizeHist(grey_img)
+            self.cv_image = cv2.equalizeHist(grey_img)
 
 
     def loop_wrapper(self):
-        print("hi")
+        print("Executing Loop")
         """ This function takes care of calling the run_loop function repeatedly.
             We are using a separate thread to run the loop_wrapper to work around
             issues with single threaded executors in ROS2 """
@@ -87,9 +89,9 @@ class optical_flow_estimate(Node):
 
     def paralax_corrector(self):
         self.corrected_vectors = np.zeros((self.raw_vectors.shape[0], 2))
-        field_of_view_x = 62.2
-        field_of_view_y = 48.8
-        height = 11.4
+        field_of_view_x = np.rad2deg(20)
+        field_of_view_y = np.rad2deg(15)
+        height = .114
 
         max_x_dist = 2 * math.sin(field_of_view_x/2) * height
         max_y_dist = 2 * math.sin(field_of_view_y/2) * height
@@ -108,7 +110,7 @@ class optical_flow_estimate(Node):
             #print(new_dist_x, new_dist_y)
 
             #old_distance = math.sqt((old_dist_x **2)+(old_dist_y **2)) # postion of vector in first image
-            distance = math.sqrt((new_dist_x **2)+(new_dist_y **2)) # position of vector in second image
+            # distance = math.sqrt((new_dist_x **2)+(new_dist_y **2)) # position of vector in second image
             self.corrected_vectors[i, :] = [new_dist_x,new_dist_y]
             #self.corrected_vectors[i] = math.sqt(((self.corrected_vectors[[i]][0]) **2)+((self.corrected_vectors[[i]][1]) **2))
 
@@ -132,6 +134,7 @@ class optical_flow_estimate(Node):
             #  setup array for all good raw vectors dimensions = (number of good vectors, dimensions(2), xy, uv)
             self.raw_vectors = np.zeros((np.shape(good_new)[0], 2, 2))
             if self.image_output:
+                frame = None # skip over adding the gray mask if there are no good points
                 for i, (new, old) in enumerate(zip(good_new, good_old)):
                     #  gets new keypoint positions
                     a, b = new.ravel()
@@ -144,11 +147,10 @@ class optical_flow_estimate(Node):
                     mask = cv2.line(mask, (int(a), int(b)), (int(c), int(d)), color[i].tolist(), 2)
                     frame = cv2.circle(mask, (int(a), int(b)), 5, color[i].tolist(), -1)
                 #  overlays mask and publishes optical flow example
-                self.img = cv2.add(frame, cv2.cvtColor(self.current_frame, cv2.COLOR_GRAY2RGB))
-                pub_img = self.bridge.cv2_to_imgmsg(self.img)
-                self.image_pub.publish(pub_img)
-                #if not raw_vectors.shape == (0, 2, 2):
-                    #self.raw_vectors_pub.publish(self.bridge.cv2_to_imgmsg(raw_vectors))
+                if frame is not None:
+                    self.img = cv2.add(frame, cv2.cvtColor(self.current_frame, cv2.COLOR_GRAY2RGB))
+                    pub_img = self.bridge.cv2_to_imgmsg(self.img)
+                    self.image_pub.publish(pub_img)
                 #  resets last fame
                 self.last_frame = self.current_frame
 
@@ -157,25 +159,37 @@ class optical_flow_estimate(Node):
         magnitudes = np.zeros((self.corrected_vectors.shape[0], 1))
         for i in range(0, self.corrected_vectors.shape[0]):
             vec = self.corrected_vectors[i, :]
-            angels[i] = np.arctan2(vec[0], vec[1])
-            #print(vec)
+            angels[i] = np.arctan2(vec[1], vec[0])
+            # print(vec)
             magnitudes[i] = np.sqrt(abs(vec[0]*vec[0]) + abs(vec[1]*vec[1]))
         self.avg_mag = np.median(magnitudes)
-        self.avg_ang = np.rad2deg(np.median(angels))
-        self.avg_vec = np.array(self.avg_mag * np.cos(self.avg_ang), self.avg_mag * np.cos(self.avg_ang))
+        self.avg_ang = np.median(angels)
+        self.avg_vec = np.array([self.avg_mag * np.sin(self.avg_ang), self.avg_mag * np.cos(self.avg_ang)])
+        # print(self.avg_vec)
+
+        self.raw_vectors_pub.publish(self.bridge.cv2_to_imgmsg(self.corrected_vectors))
+
 
     def modify_neato_localization(self):
+        # print(self.avg_ang)
         # modifies the Neato position and heading based on the average vector from optical flow
-        if 135 > self.avg_ang > 45 or 315 > self.avg_ang > 225: # if in the vertical movement range then modify the Neato position by the longitude vector
+        if 3*np.pi/4 > np.abs(self.avg_ang) > np.pi/4: # if in the vertical movement range then modify the Neato position by the longitude vector
             vec = [np.cos(self.avg_ang) * self.avg_mag, np.sin(self.avg_ang) * self.avg_mag] # cos and sin already preserve the sign of the angle since arctan2 preserves exact angle
-            self.neato_position[0] = self.neato_position[0] + vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
-            self.neato_position[1] = self.neato_position[1] + vec[1]
+            self.neato_position[0] = self.neato_position[0] + self.avg_vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
+            self.neato_position[1] = self.neato_position[1] + self.avg_vec[1]
+            print(vec)
+            # print(self.avg_mag)
         else : # updates neato heading
+            # print("")
+            # print(self.avg_ang)
+            # print(self.avg_vec)
             x = self.avg_vec[0]
             y = self.avg_vec[1]
             length = self.neato_center_to_camera
             delta_heading = np.arctan2(x, length+y)
             self.neato_heading = self.neato_heading - delta_heading
+            # print(self.avg_ang)
+            print(delta_heading)
             
             
 
@@ -190,7 +204,21 @@ class optical_flow_estimate(Node):
             self.optical_flow()
             self.paralax_corrector()
             self.find_mean_vector()
+            self.modify_neato_localization()
+            
+            quat = R.from_euler('z', self.neato_heading, degrees=False).as_quat()
+            msg = PoseStamped(pose=Pose(position=Point(x=float(self.neato_position[0].item()), y=float(self.neato_position[1].item()), z=0.0), orientation=Quaternion(x=quat[0], y=quat[1], z=quat[2], w=quat[3])))
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = 'map'
+            
+            self.pose_estimate_pub.publish(msg)
+            # print(msg)
 
+            # msg = Point(x=float(self.neato_position[0].item()), y=float(self.neato_position[1].item()), z=0.0)
+            # self.pose_estimate_pub.publish(msg)
+            # print("test")
+
+            
 
         
 
