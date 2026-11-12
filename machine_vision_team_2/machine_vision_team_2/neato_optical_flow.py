@@ -30,8 +30,10 @@ class optical_flow_estimate(Node):
         self.cv_image = None                        # the latest image from the camera
         self.bridge = CvBridge()                    # used to convert ROS messages to OpenCV
 
-        self.neato_posotion = np.zeros((2, 1))
+        self.neato_position = np.zeros((2, 1))
         self.neato_heading = 0
+
+        self.neato_center_to_camera = 15 # center of camera is 15 inches from the center of the Neato
 
         self.create_subscription(Image, image_topic, self.process_image, 10)
         self.pub = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -41,13 +43,9 @@ class optical_flow_estimate(Node):
 
         self.pose_estimate_pub = self.create_publisher(Pose, 'pose_estimate', 10)
 
-        
         self.image_output = True
 
         self.should_move = False  # whether the Neato should be moving
-
-        # TODO: initialize attributes for the center of the ball
-        # TODO: initialize attributes for the color filtering thresholds
 
         # params for ShiTomasi corner detection
         self.feature_params = dict( maxCorners = 200,
@@ -166,17 +164,18 @@ class optical_flow_estimate(Node):
         self.avg_ang = np.rad2deg(np.median(angels))
         self.avg_vec = np.array(self.avg_mag * np.cos(self.avg_ang), self.avg_mag * np.cos(self.avg_ang))
 
-    def transform_to_neato_frame(self):
-        if 45 > self.avg_ang > -45:
-            vec = [np.cos(self.avg_ang) * self.avg_mag, np.sin(self.avg_ang) * self.avg_mag]
-            self.neato_posotion[0] = self.neato_posotion[0] - vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
-            self.neato_posotion[1] = self.neato_posotion[1] - vec[1]
-        elif 180 > self.avg_ang > 135 or -135 > self.avg_ang > -18:
-            vec = [np.cos(self.avg_ang) * self.avg_mag, np.sin(self.avg_ang) * self.avg_mag]
-            self.neato_posotion[0] = self.neato_posotion[0] + vec[0] # yes i know there is a better way to add two vectors im just too tired to figure out the dimensions
-            self.neato_posotion[1] = self.neato_posotion[1] + vec[1]
-        elif True :
-            pass 
+    def modify_neato_localization(self):
+        # modifies the Neato position and heading based on the average vector from optical flow
+        if 135 > self.avg_ang > 45 or 315 > self.avg_ang > 225: # if in the vertical movement range then modify the Neato position by the longitude vector
+            vec = [np.cos(self.avg_ang) * self.avg_mag, np.sin(self.avg_ang) * self.avg_mag] # cos and sin already preserve the sign of the angle since arctan2 preserves exact angle
+            self.neato_position[0] = self.neato_position[0] + vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
+            self.neato_position[1] = self.neato_position[1] + vec[1]
+        else : # updates neato heading
+            x = self.avg_vec[0]
+            y = self.avg_vec[1]
+            length = self.neato_center_to_camera
+            delta_heading = np.arctan2(x, length+y)
+            self.neato_heading = self.neato_heading - delta_heading
             
             
 
