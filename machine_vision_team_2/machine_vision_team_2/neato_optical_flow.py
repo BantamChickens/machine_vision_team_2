@@ -32,7 +32,7 @@ class optical_flow_estimate(Node):
         self.neato_position = np.zeros((2, 1))
         self.neato_heading = 0
 
-        self.neato_center_to_camera = 15 # center of camera is 15 inches from the center of the Neato
+        self.neato_center_to_camera = .305 # center of camera is 15 inches from the center of the Neato
 
         self.create_subscription(Image, image_topic, self.process_image, 10)
         self.pub = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -159,13 +159,13 @@ class optical_flow_estimate(Node):
         magnitudes = np.zeros((self.corrected_vectors.shape[0], 1))
         for i in range(0, self.corrected_vectors.shape[0]):
             vec = self.corrected_vectors[i, :]
-            angels[i] = np.arctan2(vec[1], vec[0])
+            angels[i] = np.arctan2(vec[0], vec[1])
             # print(vec)
             magnitudes[i] = np.sqrt(abs(vec[0]*vec[0]) + abs(vec[1]*vec[1]))
         self.avg_mag = np.median(magnitudes)
         self.avg_ang = np.median(angels)
-        self.avg_vec = np.array([self.avg_mag * np.sin(self.avg_ang), self.avg_mag * np.cos(self.avg_ang)])
-        # print(self.avg_vec)
+        self.avg_vec = np.array([self.avg_mag * np.cos(self.avg_ang), self.avg_mag * np.sin(self.avg_ang)])
+        print(np.rad2deg(self.avg_ang))
 
         self.raw_vectors_pub.publish(self.bridge.cv2_to_imgmsg(self.corrected_vectors))
 
@@ -173,12 +173,18 @@ class optical_flow_estimate(Node):
     def modify_neato_localization(self):
         # print(self.avg_ang)
         # modifies the Neato position and heading based on the average vector from optical flow
-        if 3*np.pi/4 > np.abs(self.avg_ang) > np.pi/4: # if in the vertical movement range then modify the Neato position by the longitude vector
-            vec = [np.cos(self.avg_ang) * self.avg_mag, np.sin(self.avg_ang) * self.avg_mag] # cos and sin already preserve the sign of the angle since arctan2 preserves exact angle
-            self.neato_position[0] = self.neato_position[0] + self.avg_vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
-            self.neato_position[1] = self.neato_position[1] + self.avg_vec[1]
-            print(vec)
+        vec = [np.cos(self.neato_heading) * self.avg_mag, np.sin(self.neato_heading) * self.avg_mag] # cos and sin already preserve the sign of the angle since arctan2 preserves exact angle
+        if np.pi/4 > self.avg_ang > -np.pi/4: # if in the vertical movement range then modify the Neato position by the longitude vector
+            self.neato_position[0] = self.neato_position[0] + vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
+            self.neato_position[1] = self.neato_position[1] + vec[1]
+            #print(vec)
+            #print("forward")
             # print(self.avg_mag)
+        elif 3*np.pi/4 < self.avg_ang < np.pi or -np.pi < self.avg_ang < -3*np.pi/4:
+            self.neato_position[0] = self.neato_position[0] - vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
+            self.neato_position[1] = self.neato_position[1] - vec[1]
+            #print("back")
+
         else : # updates neato heading
             # print("")
             # print(self.avg_ang)
@@ -189,7 +195,7 @@ class optical_flow_estimate(Node):
             delta_heading = np.arctan2(x, length+y)
             self.neato_heading = self.neato_heading - delta_heading
             # print(self.avg_ang)
-            print(delta_heading)
+            #print(delta_heading)
             
             
 
