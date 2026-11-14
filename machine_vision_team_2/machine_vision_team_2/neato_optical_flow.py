@@ -89,16 +89,16 @@ class optical_flow_estimate(Node):
 
     def paralax_corrector(self):
         self.corrected_vectors = np.zeros((self.raw_vectors.shape[0], 2))
-        field_of_view_x = np.rad2deg(20)
-        field_of_view_y = np.rad2deg(15)
+        field_of_view_x = np.deg2rad(50.7) # empirically measured with large error
+        field_of_view_y = np.deg2rad(31.2)
         height = .114
 
         max_x_dist = 2 * math.sin(field_of_view_x/2) * height
         max_y_dist = 2 * math.sin(field_of_view_y/2) * height
 
-        pixels_x = self.last_frame.shape[0]
-        pixels_y = self.last_frame.shape[1]
-        dist_per_pixel_x =max_x_dist/pixels_x
+        pixels_x = self.last_frame.shape[1]
+        pixels_y = self.last_frame.shape[0]
+        dist_per_pixel_x =max_x_dist/pixels_x # in meters
         dist_per_pixel_y = max_y_dist/pixels_y
     
         for i in range(len(self.corrected_vectors)):
@@ -155,48 +155,50 @@ class optical_flow_estimate(Node):
                 self.last_frame = self.current_frame
 
     def find_mean_vector(self):
-        angels = np.zeros((self.corrected_vectors.shape[0], 1))
+        angles = np.zeros((self.corrected_vectors.shape[0], 1))
         magnitudes = np.zeros((self.corrected_vectors.shape[0], 1))
-        for i in range(0, self.corrected_vectors.shape[0]):
-            vec = self.corrected_vectors[i, :]
-            angels[i] = np.arctan2(vec[0], vec[1])
-            # print(vec)
-            magnitudes[i] = np.sqrt(abs(vec[0]*vec[0]) + abs(vec[1]*vec[1]))
-        self.avg_mag = np.median(magnitudes)
-        self.avg_ang = np.median(angels)
-        self.avg_vec = np.array([self.avg_mag * np.cos(self.avg_ang), self.avg_mag * np.sin(self.avg_ang)])
-        print(np.rad2deg(self.avg_ang))
+        # for i in range(0, self.corrected_vectors.shape[0]):
+        #     vec = self.corrected_vectors[i, :]
+        #     angles[i] = np.arctan2(vec[0], vec[1])
+        #     # print(vec)
+        #     magnitudes[i] = np.sqrt(abs(vec[0]*vec[0]) + abs(vec[1]*vec[1]))
+        self.avg_vec = [np.mean(self.corrected_vectors[:,0]), np.mean(self.corrected_vectors[:,1])]
+
+        # median(angles) likely does not work because of wrap around negative vs positive angle equivalents
+        self.avg_mag = np.linalg.norm(self.avg_vec)
+        self.avg_ang = np.arctan2(self.avg_vec[1], self.avg_vec[0])
+        # self.avg_vec = np.array([self.avg_mag * np.sin(self.avg_ang), self.avg_mag * np.cos(self.avg_ang)])
+        # print(np.rad2deg(self.avg_ang))
 
         self.raw_vectors_pub.publish(self.bridge.cv2_to_imgmsg(self.corrected_vectors))
 
 
     def modify_neato_localization(self):
-        # print(self.avg_ang)
         # modifies the Neato position and heading based on the average vector from optical flow
         vec = [np.cos(self.neato_heading) * self.avg_mag, np.sin(self.neato_heading) * self.avg_mag] # cos and sin already preserve the sign of the angle since arctan2 preserves exact angle
-        if np.pi/4 > self.avg_ang > -np.pi/4: # if in the vertical movement range then modify the Neato position by the longitude vector
-            self.neato_position[0] = self.neato_position[0] + vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
-            self.neato_position[1] = self.neato_position[1] + vec[1]
+        if not (3*np.pi/4 > np.abs(self.avg_ang) > np.pi/4): # check if neato is turning
+                    # print("")
+                    # print(self.avg_ang)
+                    # print(self.avg_vec)
+                    x = self.avg_vec[0]
+                    y = self.avg_vec[1]
+                    length = self.neato_center_to_camera
+                    delta_heading = np.arctan2(x, length+y)
+                    self.neato_heading = self.neato_heading + delta_heading
+                    # print(self.avg_ang)
+                    print("rotating")
+        elif 3*np.pi/4 > self.avg_ang > np.pi/4: # if in the vertical movement range then modify the Neato position by the longitude vector
+            self.neato_position[0] += vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
+            self.neato_position[1] += vec[1]
             #print(vec)
-            #print("forward")
+            print("move forward")
             # print(self.avg_mag)
-        elif 3*np.pi/4 < self.avg_ang < np.pi or -np.pi < self.avg_ang < -3*np.pi/4:
-            self.neato_position[0] = self.neato_position[0] - vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
-            self.neato_position[1] = self.neato_position[1] - vec[1]
-            #print("back")
 
-        else : # updates neato heading
-            # print("")
-            # print(self.avg_ang)
-            # print(self.avg_vec)
-            x = self.avg_vec[0]
-            y = self.avg_vec[1]
-            length = self.neato_center_to_camera
-            delta_heading = np.arctan2(x, length+y)
-            self.neato_heading = self.neato_heading - delta_heading
-            # print(self.avg_ang)
-            #print(delta_heading)
-            
+        # direction likely already accounted for
+        else: #3*np.pi/4 < self.avg_ang < np.pi or -np.pi < self.avg_ang < -3*np.pi/4:
+            self.neato_position[0] -= vec[0] # yes i know there is a better way to add to vectors im just too tired to figure out the dimensions
+            self.neato_position[1] -= vec[1]
+            print("move backwards")           
             
 
 
