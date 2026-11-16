@@ -1,1 +1,0 @@
-# machine_vision_team_2

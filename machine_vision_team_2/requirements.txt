@@ -1,0 +1,13 @@
+ament_copyright==0.17.5
+ament_flake8==0.17.5
+ament_pep257==0.17.5
+cv_bridge==4.1.0
+geometry_msgs==5.3.8
+matplotlib==3.11.2
+numpy==2.5.5
+pytest==9.2.0
+rclpy==7.1.12
+scipy==1.18.1
+sensor_msgs==5.3.8
+setuptools==84.2.1
+std_msgs==5.3.8

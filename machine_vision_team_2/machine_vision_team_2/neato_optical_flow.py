@@ -220,7 +220,7 @@ class optical_flow_estimate(Node):
             msg.header.frame_id = 'map'
             
             self.pose_estimate_pub.publish(msg)
-            # print(msg)
+            print(msg)
 
             # msg = Point(x=float(self.neato_position[0].item()), y=float(self.neato_position[1].item()), z=0.0)
             # self.pose_estimate_pub.publish(msg)
